@@ -30,6 +30,12 @@ class GameController extends ChangeNotifier {
   GamePhase _phase = GamePhase.initializing;
   Timer? _timer;
   SharedPreferences? _preferences;
+  Set<int> _clearedRows = const {};
+  int _lineClearFlashToken = 0;
+  bool _landingFlashActive = false;
+  int _landingFlashToken = 0;
+  bool _soundEnabled = true;
+  bool _hapticsEnabled = true;
 
   GameBoard get board => _board;
   TetrominoInstance? get activePiece => _activePiece;
@@ -37,6 +43,10 @@ class GameController extends ChangeNotifier {
   GameStats get stats => _stats;
   GamePhase get phase => _phase;
   int get dropInterval => _currentDropInterval;
+  Set<int> get highlightRows => _clearedRows;
+  bool get landingFlashActive => _landingFlashActive;
+  bool get soundEnabled => _soundEnabled;
+  bool get hapticsEnabled => _hapticsEnabled;
 
   int get _currentDropInterval {
     final minInterval = _config.minimumDropIntervalMs;
@@ -61,6 +71,8 @@ class GameController extends ChangeNotifier {
     _preferences ??= await SharedPreferences.getInstance();
     final bestScore = _preferences?.getInt(_bestScoreKey) ?? 0;
     _stats = _stats.copyWith(bestScore: bestScore, bestScorePersisted: true);
+    _soundEnabled = _preferences?.getBool(_soundKey) ?? true;
+    _hapticsEnabled = _preferences?.getBool(_hapticsKey) ?? true;
     _beginNewGame();
   }
 
@@ -95,7 +107,7 @@ class GameController extends ChangeNotifier {
     while (_tryShift(rowDelta: 1, notify: false)) {
       // drop until collision
     }
-    _lockActivePiece();
+    _lockActivePiece(triggerHardDrop: true);
   }
 
   void rotate() {
@@ -138,10 +150,16 @@ class GameController extends ChangeNotifier {
     return false;
   }
 
-  void _lockActivePiece() {
+  void _lockActivePiece({bool triggerHardDrop = false}) {
     if (_activePiece == null) return;
     final lockResult = _board.lockPiece(_activePiece!);
     _board = lockResult.board;
+    if (lockResult.clearedLines > 0) {
+      _triggerLineClearFlash(lockResult.clearedLineIndexes);
+    } else {
+      _clearLineFlash();
+    }
+    _triggerLandingFlash();
     _updateStats(lockResult.clearedLines);
     _spawnNextPiece();
     if (!_board.canPlace(_activePiece!)) {
@@ -226,6 +244,8 @@ class GameController extends ChangeNotifier {
     _nextPieces
       ..clear()
       ..addAll(_generatePieces(3));
+    _clearLineFlash();
+    _landingFlashActive = false;
     _spawnNextPiece();
     _scheduleTick();
     notifyListeners();
@@ -253,4 +273,48 @@ class GameController extends ChangeNotifier {
   }
 
   static const _bestScoreKey = 'best_score';
+  static const _soundKey = 'sound_enabled';
+  static const _hapticsKey = 'haptics_enabled';
+
+  void _triggerLineClearFlash(Set<int> indexes) {
+    _lineClearFlashToken++;
+    final token = _lineClearFlashToken;
+    _clearedRows = indexes.isEmpty ? const {} : Set<int>.from(indexes);
+    notifyListeners();
+    Future.delayed(const Duration(milliseconds: 320), () {
+      if (_lineClearFlashToken == token) {
+        _clearLineFlash();
+        notifyListeners();
+      }
+    });
+  }
+
+  void _clearLineFlash() {
+    _clearedRows = const {};
+  }
+
+  void _triggerLandingFlash() {
+    _landingFlashToken++;
+    final token = _landingFlashToken;
+    _landingFlashActive = true;
+    notifyListeners();
+    Future.delayed(const Duration(milliseconds: 180), () {
+      if (_landingFlashToken == token) {
+        _landingFlashActive = false;
+        notifyListeners();
+      }
+    });
+  }
+
+  void toggleSound() {
+    _soundEnabled = !_soundEnabled;
+    _preferences?.setBool(_soundKey, _soundEnabled);
+    notifyListeners();
+  }
+
+  void toggleHaptics() {
+    _hapticsEnabled = !_hapticsEnabled;
+    _preferences?.setBool(_hapticsKey, _hapticsEnabled);
+    notifyListeners();
+  }
 }

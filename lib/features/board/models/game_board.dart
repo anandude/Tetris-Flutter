@@ -8,10 +8,12 @@ class LockResult {
   const LockResult({
     required this.board,
     required this.clearedLines,
+    required this.clearedLineIndexes,
   });
 
   final GameBoard board;
   final int clearedLines;
+  final Set<int> clearedLineIndexes;
 }
 
 class GameBoard extends Equatable {
@@ -93,15 +95,30 @@ class GameBoard extends Equatable {
       newGrid.insert(0, List.generate(columns, (_) => const BoardCell()));
     }
 
+    final clearedIndexes = <int>{};
+    if (clearedLines > 0) {
+      var nextIndex = rows - 1;
+      for (var row = rows - 1; row >= 0; row--) {
+        final originalRow = currentGrid[row];
+        final isFilled = originalRow.every((cell) => !cell.isEmpty);
+        if (isFilled) {
+          clearedIndexes.add(nextIndex);
+        }
+        nextIndex--;
+      }
+    }
+
     return LockResult(
       board: GameBoard(rows: rows, columns: columns, grid: newGrid),
       clearedLines: clearedLines,
+      clearedLineIndexes: clearedIndexes,
     );
   }
 
   List<List<BoardCell>> _copyGrid() {
     return [
-      for (final row in grid) [for (final cell in row) BoardCell(color: cell.color)],
+      for (final row in grid)
+        [for (final cell in row) BoardCell(color: cell.color)],
     ];
   }
 
