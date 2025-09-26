@@ -10,9 +10,7 @@ class GameScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GameController.scope(
-      child: const _GameScaffold(),
-    );
+    return GameController.scope(child: const _GameScaffold());
   }
 }
 
@@ -93,8 +91,13 @@ class _StatsBar extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         _StatTile(label: 'Score', value: controller.stats.score.toString()),
+        _StatTile(label: 'Best', value: controller.stats.bestScore.toString()),
+        _StatTile(label: 'Combo x', value: controller.stats.combo.toString()),
         _StatTile(label: 'Level', value: controller.stats.level.toString()),
-        _StatTile(label: 'Lines', value: controller.stats.linesCleared.toString()),
+        _StatTile(
+          label: 'Lines',
+          value: controller.stats.linesCleared.toString(),
+        ),
       ],
     );
   }
@@ -157,4 +160,3 @@ class _Controls extends StatelessWidget {
     );
   }
 }
-

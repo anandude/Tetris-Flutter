@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/game_config.dart';
 import '../../board/models/game_board.dart';
@@ -14,11 +15,11 @@ import '../models/game_state.dart';
 import '../models/game_stats.dart';
 
 class GameController extends ChangeNotifier {
-  GameController({
-    required GameConfig config,
-  })  : _config = config,
-        _board = GameBoard.fromConfig(config),
-        _random = Random();
+  GameController({required GameConfig config, SharedPreferences? preferences})
+    : _config = config,
+      _board = GameBoard.fromConfig(config),
+      _random = Random(),
+      _preferences = preferences;
 
   final GameConfig _config;
   GameBoard _board;
@@ -28,6 +29,7 @@ class GameController extends ChangeNotifier {
   GameStats _stats = const GameStats();
   GamePhase _phase = GamePhase.initializing;
   Timer? _timer;
+  SharedPreferences? _preferences;
 
   GameBoard get board => _board;
   TetrominoInstance? get activePiece => _activePiece;
@@ -38,10 +40,14 @@ class GameController extends ChangeNotifier {
 
   int get _currentDropInterval {
     final minInterval = _config.minimumDropIntervalMs;
-    final interval = (_config.initialDropIntervalMs *
-            pow(_config.speedIncreaseFactor, (_stats.level - 1)))
-        .round();
-    final num clamped = interval.clamp(minInterval, _config.initialDropIntervalMs);
+    final interval =
+        (_config.initialDropIntervalMs *
+                pow(_config.speedIncreaseFactor, (_stats.level - 1)))
+            .round();
+    final num clamped = interval.clamp(
+      minInterval,
+      _config.initialDropIntervalMs,
+    );
     return clamped.toInt();
   }
 
@@ -51,7 +57,10 @@ class GameController extends ChangeNotifier {
     super.dispose();
   }
 
-  void start() {
+  Future<void> start() async {
+    _preferences ??= await SharedPreferences.getInstance();
+    final bestScore = _preferences?.getInt(_bestScoreKey) ?? 0;
+    _stats = _stats.copyWith(bestScore: bestScore, bestScorePersisted: true);
     _beginNewGame();
   }
 
@@ -74,6 +83,7 @@ class GameController extends ChangeNotifier {
   void stop() {
     _timer?.cancel();
     _phase = GamePhase.gameOver;
+    _updateBestScore();
     notifyListeners();
   }
 
@@ -137,34 +147,47 @@ class GameController extends ChangeNotifier {
     if (!_board.canPlace(_activePiece!)) {
       _phase = GamePhase.gameOver;
       _timer?.cancel();
+      _updateBestScore();
     }
     notifyListeners();
   }
 
   void _updateStats(int clearedLines) {
-    if (clearedLines == 0) return;
+    if (clearedLines == 0) {
+      if (_stats.combo != 0) {
+        _stats = _stats.copyWith(combo: 0);
+      }
+      return;
+    }
+
     final newLines = _stats.linesCleared + clearedLines;
+    final newCombo = _stats.combo + 1;
     final newLevel = 1 + newLines ~/ 10;
-    final scoreGain = _scoreForLines(clearedLines) * newLevel;
+    final scoreGain = _scoreForLines(clearedLines, combo: newCombo) * newLevel;
     _stats = _stats.copyWith(
       linesCleared: newLines,
       level: newLevel,
       score: _stats.score + scoreGain,
+      combo: newCombo,
     );
+
+    if (_stats.score > _stats.bestScore) {
+      _stats = _stats.copyWith(bestScore: _stats.score);
+    }
   }
 
-  int _scoreForLines(int clearedLines) {
+  int _scoreForLines(int clearedLines, {required int combo}) {
     switch (clearedLines) {
       case 1:
-        return 100;
+        return 100 + combo * 25;
       case 2:
-        return 300;
+        return 300 + combo * 50;
       case 3:
-        return 500;
+        return 500 + combo * 75;
       case 4:
-        return 800;
+        return 800 + combo * 100;
       default:
-        return clearedLines * 200;
+        return clearedLines * 200 + combo * 50;
     }
   }
 
@@ -194,7 +217,10 @@ class GameController extends ChangeNotifier {
   void _beginNewGame() {
     _timer?.cancel();
     _phase = GamePhase.running;
-    _stats = const GameStats();
+    _stats = GameStats(
+      bestScore: _stats.bestScore,
+      bestScorePersisted: _stats.bestScorePersisted,
+    );
     _board = GameBoard.fromConfig(_config);
     _activePiece = null;
     _nextPieces
@@ -213,5 +239,18 @@ class GameController extends ChangeNotifier {
       child: child,
     );
   }
-}
 
+  Future<void> _updateBestScore() async {
+    if (_preferences == null) return;
+    final currentBest = _preferences!.getInt(_bestScoreKey) ?? 0;
+    if (_stats.score > currentBest) {
+      await _preferences!.setInt(_bestScoreKey, _stats.score);
+      _stats = _stats.copyWith(
+        bestScore: _stats.score,
+        bestScorePersisted: true,
+      );
+    }
+  }
+
+  static const _bestScoreKey = 'best_score';
+}
